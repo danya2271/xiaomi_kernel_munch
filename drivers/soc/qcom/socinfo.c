@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2009-2021, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
@@ -63,8 +64,7 @@ enum {
 	HW_PLATFORM_J2S = 45,
 	HW_PLATFORM_K81 = 46,
 	HW_PLATFORM_K81A = 47,
-	HW_PLATFORM_L3A = 48,
-    HW_PLATFORM_L11R = 50,
+	HW_PLATFORM_L11R = 50,
 	HW_PLATFORM_HDK = 31,
 	HW_PLATFORM_IDP = 34,
 	HW_PLATFORM_INVALID
@@ -96,8 +96,7 @@ const char *hw_platform[] = {
 	[HW_PLATFORM_J2S] = "THYME",
 	[HW_PLATFORM_K81] = "ENUMA",
 	[HW_PLATFORM_K81A] = "ELISH",
-	[HW_PLATFORM_L3A] = "PSYCHE",
-    [HW_PLATFORM_L11R] = "MUNCH",
+	[HW_PLATFORM_L11R] = "MUNCH",
 	[HW_PLATFORM_HDK] = "HDK",
 	[HW_PLATFORM_IDP] = "IDP"
 };
@@ -1751,11 +1750,9 @@ uint32_t get_hw_version_platform(void)
 		return HARDWARE_PLATFORM_ENUMA;
 	if (hw_type == HW_PLATFORM_K81A)
 		return HARDWARE_PLATFORM_ELISH;
-	if (hw_type == HW_PLATFORM_J2S)
-		return HARDWARE_PLATFORM_THYME;
-	if (hw_type == HW_PLATFORM_L3A)
-		return HARDWARE_PLATFORM_PSYCHE;
-	if (hw_type == HW_PLATFORM_L11R)
+        if (hw_type == HW_PLATFORM_J2S)
+                return HARDWARE_PLATFORM_THYME;
+	else if (hw_type == HW_PLATFORM_L11R)
 		return HARDWARE_PLATFORM_MUNCH;
 	else
 		return HARDWARE_PLATFORM_UNKNOWN;
@@ -1815,4 +1812,4 @@ int __init socinfo_init(void)
 
 	return 0;
 }
-subsys_initcall(socinfo_init);
+device_initcall(socinfo_init);

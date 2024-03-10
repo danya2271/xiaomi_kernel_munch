@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <uapi/linux/sched/types.h>
@@ -236,7 +237,6 @@ static struct kgsl_mem_entry *kgsl_mem_entry_create(void)
 		atomic_set(&entry->map_count, 0);
 	}
 
-	atomic_set(&entry->map_count, 0);
 	return entry;
 }
 
@@ -1316,7 +1316,7 @@ kgsl_sharedmem_find(struct kgsl_process_private *private, uint64_t gpuaddr)
 	if (!private)
 		return NULL;
 
-	if (!kgsl_mmu_gpuaddr_in_range(private->pagetable, gpuaddr))
+	if (!kgsl_mmu_gpuaddr_in_range(private->pagetable, gpuaddr, 0))
 		return NULL;
 
 	spin_lock(&private->mem_lock);
@@ -2338,7 +2338,7 @@ static long gpuobj_free_on_fence(struct kgsl_device_private *dev_priv,
 	}
 
 	handle = kgsl_sync_fence_async_wait(event.fd,
-		gpuobj_free_fence_func, entry, NULL);
+		gpuobj_free_fence_func, entry);
 
 	if (IS_ERR(handle)) {
 		kgsl_mem_entry_unset_pend(entry);
@@ -2487,6 +2487,15 @@ static int memdesc_sg_virt(struct kgsl_memdesc *memdesc, unsigned long useraddr)
 
 	ret = sg_alloc_table_from_pages(memdesc->sgt, pages, npages,
 					0, memdesc->size, GFP_KERNEL);
+
+	if (ret)
+		goto out;
+
+	ret = kgsl_cache_range_op(memdesc, 0, memdesc->size,
+			KGSL_CACHE_OP_FLUSH);
+
+	if (ret)
+		sg_free_table(memdesc->sgt);
 out:
 	if (ret) {
 		for (i = 0; i < npages; i++)
@@ -4917,6 +4926,7 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_mem_entry *entry = NULL;
 	struct kgsl_device *device = dev_priv->device;
+	uint64_t flags;
 
 	/* Handle leagacy behavior for memstore */
 
@@ -4961,8 +4971,11 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 
 	vma->vm_ops = &kgsl_gpumem_vm_ops;
 
-	if (cache == KGSL_CACHEMODE_WRITEBACK
-		|| cache == KGSL_CACHEMODE_WRITETHROUGH) {
+	flags = entry->memdesc.flags;
+
+	if (!(flags & KGSL_MEMFLAGS_IOCOHERENT) &&
+	    (cache == KGSL_CACHEMODE_WRITEBACK ||
+	     cache == KGSL_CACHEMODE_WRITETHROUGH)) {
 		int i;
 		unsigned long addr = vma->vm_start;
 		struct kgsl_memdesc *m = &entry->memdesc;
@@ -4992,6 +5005,15 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 	if (atomic_inc_return(&entry->map_count) == 1)
 		atomic_long_add(entry->memdesc.size,
 				&entry->priv->gpumem_mapped);
+
+	/*
+	 * kgsl gets the entry id or the gpu address through vm_pgoff.
+	 * It is used during mmap and never needed again. But this vm_pgoff
+	 * has different meaning at other parts of kernel. Not setting to
+	 * zero will let way for wrong assumption when tried to unmap a page
+	 * from this vma.
+	 */
+	vma->vm_pgoff = 0;
 
 	trace_kgsl_mem_mmap(entry, vma->vm_start);
 	return 0;
@@ -5157,7 +5179,6 @@ int kgsl_of_property_read_ddrtype(struct device_node *node, const char *base,
 int kgsl_device_platform_probe(struct kgsl_device *device)
 {
 	int status = -EINVAL;
-	int cpu;
 
 	status = _register_device(device);
 	if (status)
@@ -5217,9 +5238,9 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	dma_set_max_seg_size(device->dev, KGSL_DMA_BIT_MASK);
 
 	/* Initialize the memory pools */
-	kgsl_init_page_pools(device);
+	kgsl_init_page_pools(device->pdev);
 
-	status = kgsl_reclaim_init(device);
+	status = kgsl_reclaim_init();
 	if (status)
 		goto error_close_mmu;
 
@@ -5241,27 +5262,8 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 				PM_QOS_CPU_DMA_LATENCY,
 				PM_QOS_DEFAULT_VALUE);
 
-	if (device->pwrctrl.l2pc_cpus_mask) {
-		struct pm_qos_request *qos = &device->pwrctrl.l2pc_cpus_qos;
-
-		qos->type = PM_QOS_REQ_AFFINE_CORES;
-
-		cpumask_empty(&qos->cpus_affine);
-		for_each_possible_cpu(cpu) {
-			if ((1 << cpu) & device->pwrctrl.l2pc_cpus_mask)
-				cpumask_set_cpu(cpu, &qos->cpus_affine);
-		}
-
-		pm_qos_add_request(&device->pwrctrl.l2pc_cpus_qos,
-				PM_QOS_CPU_DMA_LATENCY,
-				PM_QOS_DEFAULT_VALUE);
-	}
-
 	device->events_wq = alloc_workqueue("kgsl-events",
 		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI, 0);
-
-	/* Initialize the snapshot engine */
-	kgsl_device_snapshot_init(device);
 
 	/* Initialize common sysfs entries */
 	kgsl_pwrctrl_init_sysfs(device);
@@ -5286,15 +5288,11 @@ void kgsl_device_platform_remove(struct kgsl_device *device)
 	kfree(device->dev->dma_parms);
 	device->dev->dma_parms = NULL;
 
-	kgsl_device_snapshot_close(device);
-
 	kgsl_exit_page_pools();
 
 	kgsl_pwrctrl_uninit_sysfs(device);
 
 	pm_qos_remove_request(&device->pwrctrl.pm_qos_req_dma);
-	if (device->pwrctrl.l2pc_cpus_mask)
-		pm_qos_remove_request(&device->pwrctrl.l2pc_cpus_qos);
 
 	idr_destroy(&device->context_idr);
 
@@ -5348,7 +5346,7 @@ static void kgsl_core_exit(void)
 static int __init kgsl_core_init(void)
 {
 	int result = 0;
-	struct sched_param param = { .sched_priority = 2 };
+	struct sched_param param = { .sched_priority = 16 };
 
 	/* alloc major and minor device numbers */
 	result = alloc_chrdev_region(&kgsl_driver.major, 0,
@@ -5414,7 +5412,7 @@ static int __init kgsl_core_init(void)
 		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS, 0);
 
 	kgsl_driver.mem_workqueue = alloc_workqueue("kgsl-mementry",
-		WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
+		WQ_HIGHPRI | WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
 
 	INIT_WORK(&kgsl_driver.mem_work, _flush_mem_workqueue);
 

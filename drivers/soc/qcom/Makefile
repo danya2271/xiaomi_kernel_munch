@@ -60,7 +60,7 @@ ifdef CONFIG_MSM_SUBSYSTEM_RESTART
 	obj-y += subsystem_notif.o
 	obj-y += subsystem_restart.o
 	obj-y += ramdump.o
-	obj-y += microdump_collector.o
+#	obj-y += microdump_collector.o # Our modem isn't crashing anymore, so remove code that collects info about it's crash
 endif
 obj-$(CONFIG_QCOM_EUD) += eud.o
 obj-$(CONFIG_SOC_BUS) += socinfo.o
@@ -72,9 +72,6 @@ obj-$(CONFIG_QCOM_FSA4480_I2C) += fsa4480-i2c.o
 obj-$(CONFIG_QCOM_GLINK) += glink_probe.o
 obj-$(CONFIG_QCOM_GLINK_PKT) += glink_pkt.o
 obj-$(CONFIG_QCOM_SMP2P_SLEEPSTATE) += smp2p_sleepstate.o
-ifeq (y, $(CONFIG_SMP2P_SLEEPSTATE_TIME_100MS))
-ccflags-y += -D CONFIG_SMP2P_SLEEPSTATE_TIME_100MS
-endif
 obj-$(CONFIG_QCOM_QDSS_BRIDGE) += qdss_bridge.o
 obj-$(CONFIG_MSM_QBT_HANDLER) += qbt_handler.o
 obj-$(CONFIG_QSEE_IPC_IRQ) += qsee_ipc_irq.o
@@ -113,7 +110,3 @@ obj-$(CONFIG_QTI_CRYPTO_TZ) += crypto-qti-tz.o
 obj-$(CONFIG_QTI_HW_KEY_MANAGER) += hwkm_qti.o
 hwkm_qti-y += hwkm.o
 obj-$(CONFIG_MSM_BAM_DMUX) += bam_dmux.o
-ifeq ($(TARGET_PRODUCT),munch)
-CDEFINES += -DCONFIG_TARGET_PRODUCT_MUNCH
-KBUILD_CPPFLAGS += $(CDEFINES)
-endif

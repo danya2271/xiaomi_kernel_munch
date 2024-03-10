@@ -5,9 +5,9 @@
  *               does not allow adding attributes.
  *
  * Copyright (c) 2004 Jon Smirl <jonsmirl@gmail.com>
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Copyright (c) 2003-2004 Greg Kroah-Hartman <greg@kroah.com>
  * Copyright (c) 2003-2004 IBM Corp.
- * Copyright (C) 2022 Xiaomi, Inc.
  *
  * This file is released under the GPLv2
  *
@@ -23,6 +23,7 @@
 #include <drm/drmP.h>
 #include "drm_internal.h"
 #include "drm_internal_mi.h"
+
 #include <drm/msm_drm_pp.h>
 
 #define to_drm_minor(d) dev_get_drvdata(d)

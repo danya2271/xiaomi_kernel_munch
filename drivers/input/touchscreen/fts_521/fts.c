@@ -4,6 +4,7 @@
  * FTS Capacitive touch screen controller (FingerTipS)
  *
  * Copyright (C) 2016, STMicroelectronics Limited.
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Authors: AMG(Analog Mems Group)
  *
  * 		marco.cali@st.com
@@ -50,7 +51,6 @@
 #include <linux/hardirq.h>
 #endif
 
-#include <linux/pm_runtime.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
@@ -85,6 +85,11 @@
 #include "fts_lib/ftsTime.h"
 #include "fts_lib/ftsTool.h"
 #include <linux/power_supply.h>
+#ifdef GESTURE_MODE
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+#include <linux/input/tp_common.h>
+#endif
+#endif
 
 /**
  * Event handler installer helpers
@@ -142,9 +147,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force);
 static int fts_set_cur_value(int mode, int value);
 #endif
 extern int power_supply_is_system_supplied(void);
-extern void touch_irq_boost(void);
-#define EVENT_INPUT 0x1
-extern void lpm_disable_for_dev(bool on, char event_dev);
 
 /**
 * Release all the touches in the linux input subsystem
@@ -169,7 +171,6 @@ void release_all_touches(struct fts_ts_info *info)
 	input_sync(info->input_dev);
 	input_report_key(info->input_dev, BTN_INFO, 0);
 	input_sync(info->input_dev);
-	lpm_disable_for_dev(false, EVENT_INPUT);
 	info->touch_id = 0;
 	info->touch_skip = 0;
 	info->fod_id = 0;
@@ -496,6 +497,33 @@ static ssize_t fts_feature_enable_show(struct device *dev,
 	return count;
 }
 #else
+
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+static ssize_t double_tap_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", fts_info->gesture_enabled);
+}
+
+static ssize_t double_tap_store(struct kobject *kobj,
+				struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int rc, val;
+
+	rc = kstrtoint(buf, 10, &val);
+	if (rc)
+		return -EINVAL;
+
+	fts_info->gesture_enabled = !!val;
+	schedule_work(&fts_info->switch_mode_work);
+	return count;
+}
+
+static struct tp_common_ops double_tap_ops = {
+	.show = double_tap_show,
+	.store = double_tap_store
+};
+#endif
 
 #ifdef GRIP_MODE
 /**
@@ -3025,31 +3053,11 @@ static int fts_write_charge_status(int status)
 	u8 wired_charge_cmd[3] = {0xA2, 0x02, 0x01};
 	u8 wireless_charge_cmd[3] = {0xA2, 0x02, 0x02};
 	int res;
-#ifdef CONFIG_SECURE_TOUCH
-	struct fts_secure_info *scr_info = fts_info->secure_info;
-#endif
 
 	if (!fts_info) {
 		logError(1, "%s %s touch no inited\n", tag, __func__);
 		return 0;
 	}
-
-/*TODO:add notify chain to set touch state in list as below
- *     when exit secure enable
- * 1.palm
- * 2.set mode long value
- * 3.charge
- * */
-#ifdef CONFIG_SECURE_TOUCH
-	mutex_lock(&scr_info->palm_lock);
-	if (atomic_read(&scr_info->st_enabled)) {
-		MI_TOUCH_LOGE(1, "%s %s: already pending,skip", tag, __func__);
-		mutex_unlock(&scr_info->palm_lock);
-		return 0;
-	}
-	mutex_unlock(&scr_info->palm_lock);
-#endif
-
 	mutex_lock(&fts_info->charge_lock);
 	logError(1, "%s %s: charging_status:%d\n", tag, __func__, status);
 	if (status == NOT_CHARGING) {
@@ -3324,7 +3332,6 @@ static ssize_t fts_secure_touch_enable_store (struct device *dev, struct device_
 			return ret;
 		}
 		mutex_lock(&scr_info->palm_lock);
-		pm_runtime_allow(&info->client->adapter->dev);
 		atomic_set(&scr_info->st_enabled, 0);
 		fts_secure_touch_notify(info);
 		complete(&scr_info->st_irq_processed);
@@ -3345,7 +3352,6 @@ static ssize_t fts_secure_touch_enable_store (struct device *dev, struct device_
 		/*wait until finish process all normal irq*/
 		synchronize_irq(info->client->irq);
 
-		pm_runtime_forbid(&info->client->adapter->dev);
 		/*enable secure touch*/
 		reinit_completion(&scr_info->st_powerdown);
 		reinit_completion(&scr_info->st_irq_processed);
@@ -3369,9 +3375,9 @@ static ssize_t fts_secure_touch_show (struct device *dev, struct device_attribut
 	struct fts_secure_info *scr_info = info->secure_info;
 	int value = 0;
 
-	MI_TOUCH_LOGN(1, "%s %s: SECURE_TOUCH[R]:st_1st_complete = %d\n",
+	MI_TOUCH_LOGI(1, "%s %s: SECURE_TOUCH[R]:st_1st_complete = %d\n",
 		tag, __func__, atomic_read(&scr_info->st_1st_complete));
-	MI_TOUCH_LOGN(1, "%s %s: SECURE_TOUCH[R]:st_pending_irqs = %d\n",
+	MI_TOUCH_LOGI(1, "%s %s: SECURE_TOUCH[R]:st_pending_irqs = %d\n",
 		tag, __func__, atomic_read(&scr_info->st_pending_irqs));
 
 	if (atomic_read(&scr_info->st_enabled) == 0) {
@@ -3385,7 +3391,7 @@ static ssize_t fts_secure_touch_show (struct device *dev, struct device_attribut
 		value = 1;
 	} else if (atomic_cmpxchg(&scr_info->st_1st_complete, 1, 0) == 1) {
 		complete(&scr_info->st_irq_processed);
-		MI_TOUCH_LOGN(1, "%s %s: SECURE_TOUCH[R]:comlpetion st_irq_processed\n", tag, __func__);
+		MI_TOUCH_LOGI(1, "%s %s: SECURE_TOUCH[R]:comlpetion st_irq_processed\n", tag, __func__);
 	}
 	return scnprintf(buf, PAGE_SIZE, "%d", value);
 }
@@ -3849,7 +3855,6 @@ static void fts_leave_pointer_event_handler(struct fts_ts_info *info,
 		input_report_key(info->input_dev, BTN_TOUCH, touch_condition);
 		if (!touch_condition)
 			input_report_key(info->input_dev, BTN_TOOL_FINGER, 0);
-		lpm_disable_for_dev(false, EVENT_INPUT);
 
 		info->fod_pressed = false;
 		input_report_key(info->input_dev, BTN_INFO, 0);
@@ -4520,7 +4525,6 @@ static void fts_ts_sleep_work(struct work_struct *work)
 			logError(1, "%s pm_resume_completion timeout, i2c is closed", tag);
 			pm_relax(info->dev);
 			fts_enableInterrupt();
-			lpm_disable_for_dev(false, EVENT_INPUT);
 			return;
 		} else {
 			logError(1, "%s pm_resume_completion be completed, handling irq", tag);
@@ -4575,7 +4579,6 @@ static void fts_ts_sleep_work(struct work_struct *work)
 #endif
 	pm_relax(info->dev);
 	fts_enableInterrupt();
-	lpm_disable_for_dev(false, EVENT_INPUT);
 
 	return;
 }
@@ -4599,7 +4602,6 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 	static char pre_id[3];
 	event_dispatch_handler_t event_handler;
 
-	touch_irq_boost();
 	if (info->tp_pm_suspend) {
 		MI_TOUCH_LOGI(1, "%s %s: device in suspend, schedue to work", tag, __func__);
 		pm_wakeup_event(info->dev, 0);
@@ -4616,7 +4618,6 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 	}
 #endif
 
-	lpm_disable_for_dev(true, EVENT_INPUT);
 	info->irq_status = true;
 	error = fts_writeReadU8UX(regAdd, 0, 0, data, FIFO_EVENT_SIZE,
 				  DUMMY_FIFO);
@@ -4660,8 +4661,6 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 	}
 	input_sync(info->input_dev);
 	info->irq_status = false;
-	if (!info->touch_id)
-		lpm_disable_for_dev(false, EVENT_INPUT);
 #ifdef CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE
 	wake_up(&info->wait_queue);
 #endif
@@ -5178,7 +5177,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 		MI_TOUCH_LOGI(1, "%s %s: Screen OFF... \n", tag, __func__);
 		gesture_type = fts_need_enter_lp_mode();
 		gesture_cmd[5] = gesture_type;
-#ifndef CONFIG_FACTORY_BUILD
 		if (gesture_type) {
 			if (info->gesture_enabled == 1)
 				gesture_cmd[2] = 0x20;
@@ -5190,7 +5188,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 			ret = setScanMode(SCAN_MODE_LOW_POWER, 0);
 			res |= ret;
 		} else {
-#endif
 			if (info->gesture_enabled == 1) {
 				MI_TOUCH_LOGI(1, "%s %s: enter doubletap mode! \n", tag, __func__);
 				res = fts_write_dma_safe(doubletap_cmd, ARRAY_SIZE(doubletap_cmd));
@@ -5204,9 +5201,7 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 				ret = setScanMode(SCAN_MODE_ACTIVE, 0x00);
 				res |= ret;
 			}
-#ifndef CONFIG_FACTORY_BUILD
 		}
-#endif
 		setSystemResetedDown(0);
 		break;
 
@@ -5302,19 +5297,15 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 		}
 #endif
 #ifdef CONFIG_TOUCHSCREEN_FOD
-#ifndef CONFIG_FACTORY_BUILD
 		if (info->fod_pressed) {
 			MI_TOUCH_LOGN(1, "%s %s: fod pressed, Sense OFF \n", tag, __func__);
 			res |= setScanMode(SCAN_MODE_ACTIVE, 0x00);
 			MI_TOUCH_LOGI(1, "%s %s: fod pressed, Sense ON without cal \n", tag, __func__);
 			res |= setScanMode(SCAN_MODE_ACTIVE, 0x20);
 		} else {
-#endif
 			MI_TOUCH_LOGI(1, "%s %s: Sense ON\n", tag, __func__);
 			res |= setScanMode(SCAN_MODE_ACTIVE, 0x01);
-#ifndef CONFIG_FACTORY_BUILD
 		}
-#endif
 		info->sensor_scan = true;
 		res = fts_write_dma_safe(gesture_cmd, ARRAY_SIZE(gesture_cmd));
 		if (res < OK)
@@ -5968,9 +5959,6 @@ static int fts_reset_mode(int mode)
 static int fts_set_mode_long_value(int mode, int len, int *buf)
 {
 	int i = 0;
-#ifdef CONFIG_SECURE_TOUCH
-	struct fts_secure_info *scr_info = fts_info->secure_info;
-#endif
 
 	if (len == 0)
 		return -EIO;
@@ -5984,18 +5972,8 @@ static int fts_set_mode_long_value(int mode, int len, int *buf)
 		if (fts_info->gamemode_enable) {
 			MI_TOUCH_LOGE(1, "%s %s: in gamemode, don't write parameters to touch ic\n", tag, __func__);
 			return 0;
-		} else {
-#ifdef CONFIG_SECURE_TOUCH
-			mutex_lock(&scr_info->palm_lock);
-			if (atomic_read(&scr_info->st_enabled)) {
-				MI_TOUCH_LOGE(1, "%s %s: already pending,skip", tag, __func__);
-				mutex_unlock(&scr_info->palm_lock);
-				return 0;
-			}
-			mutex_unlock(&scr_info->palm_lock);
-#endif
+		} else
 			schedule_work(&fts_info->grip_mode_work);
-		}
 	}
 	return 0;
 }
@@ -6136,34 +6114,20 @@ static char fts_touch_vendor_read(void)
 static void fts_resume_work(struct work_struct *work)
 {
 	struct fts_ts_info *info;
-#ifdef CONFIG_FACTORY_BUILD
-	int retval = 0;
-#endif
 	info = container_of(work, struct fts_ts_info, resume_work);
 	MI_TOUCH_LOGI(1, "%s %s: enter\n", tag,  __func__);
-#ifndef CONFIG_FACTORY_BUILD
 	fts_disableInterrupt();
 #ifdef CONFIG_SECURE_TOUCH
 	fts_secure_stop(info, true);
 #endif
-#else
-	retval = fts_enable_reg(info, true);
-	if (retval < 0) {
-		MI_TOUCH_LOGE(1, "%s %s: Failed to enable regulators\n", tag, __func__);
-	}
-#endif
 	info->resume_bit = 1;
-#ifndef CONFIG_FACTORY_BUILD
 #ifdef CONFIG_TOUCHSCREEN_FOD
 	if (!info->fod_pressed) {
 #endif
-#endif
 	fts_system_reset();
 	release_all_touches(info);
-#ifndef CONFIG_FACTORY_BUILD
 #ifdef CONFIG_TOUCHSCREEN_FOD
 	}
-#endif
 #endif
 	fts_mode_handler(info, 0);
 	if (info->probe_ok)
@@ -6186,9 +6150,6 @@ static void fts_resume_work(struct work_struct *work)
 static void fts_suspend_work(struct work_struct *work)
 {
 	struct fts_ts_info *info;
-#ifdef CONFIG_FACTORY_BUILD
-	int retval = 0;
-#endif
 
 	info = container_of(work, struct fts_ts_info, suspend_work);
 #ifdef CONFIG_SECURE_TOUCH
@@ -6209,17 +6170,8 @@ static void fts_suspend_work(struct work_struct *work)
 	release_all_touches(info);
 
 	info->sensor_sleep = true;
-#ifdef CONFIG_FACTORY_BUILD
-	retval = fts_enable_reg(info, false);
-	if (retval < 0) {
-		logError(1, "%s %s: ERROR Failed to enable regulators\n", tag,
-			__func__);
-	}
-#else
 	if (info->gesture_enabled || fts_need_enter_lp_mode())
 		fts_enableInterrupt();
-#endif
-	lpm_disable_for_dev(false, EVENT_INPUT);
 }
 
 #ifdef CONFIG_DRM
@@ -7504,10 +7456,10 @@ static int fts_probe(struct spi_device *client)
 	int retval;
 	int skip_5_1 = 0;
 	u16 bus_type;
-#ifdef CONFIG_FACTORY_BUILD
-	int res = 0;
-	u8 gesture_cmd[6] = {0xA2, 0x03, 0x00, 0x00, 0x00, 0x03};
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+	int ret;
 #endif
+
 	MI_TOUCH_LOGI(1, "%s %s: Probe start\n", tag, __func__);
 
 	MI_TOUCH_LOGD(1, "%s %s: driver ver: %s\n", tag, __func__,
@@ -7724,6 +7676,12 @@ static int fts_probe(struct spi_device *client)
 	mutex_init(&(info->input_report_mutex));
 #ifdef GESTURE_MODE
 	mutex_init(&gestureMask_mutex);
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+	ret = tp_common_set_double_tap_ops(&double_tap_ops);
+	if (ret < 0)
+		MI_TOUCH_LOGE(1, "%s %s: Failed to create double_tap node err=%d\n",
+			tag, __func__, ret);
+#endif
 #endif
 
 	spin_lock_init(&fts_int);
@@ -7765,6 +7723,16 @@ static int fts_probe(struct spi_device *client)
 #ifdef CONFIG_BL_CALLBACK
 	info->bl_notifier = fts_bl_noti_block;
 #endif
+
+	/*
+	 * This *must* be done before request_threaded_irq is called.
+	 * Otherwise, if an interrupt is received before request is added,
+	 * but after the interrupt has been subscribed to, pm_qos_req
+	 * may be accessed before initialization in the interrupt handler.
+	 */
+	pm_qos_add_request(&info->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+			PM_QOS_DEFAULT_VALUE);
+
 	MI_TOUCH_LOGD(1, "%s %s: Init Core Lib: \n", tag, __func__);
 	initCore(info);
 	/* init hardware device */
@@ -7890,21 +7858,7 @@ static int fts_probe(struct spi_device *client)
 	dev_set_drvdata(info->fts_touch_dev, info);
 #ifdef CONFIG_TOUCHSCREEN_FOD
 	mutex_init(&(info->fod_mutex));
-#ifdef CONFIG_FACTORY_BUILD
-	mutex_lock(&info->fod_mutex);
-	res = fts_write(gesture_cmd, ARRAY_SIZE(gesture_cmd));
-	if (res < OK) {
-		MI_TOUCH_LOGE(1, "%s %s: enter gesture mode faile, error code: %08X\n",
-		tag, __func__, res);
-	} else {
-		MI_TOUCH_LOGI(1, "%s %s: send gesture and longpress cmd success\n", tag, __func__);
-	}
-	fts_enableInterrupt();
-	info->fod_status = 1;
-	mutex_unlock(&info->fod_mutex);
-#else
 	info->fod_status = -1;
-#endif
 	info->fod_icon_status = 1;
 	error =
 	    sysfs_create_file(&info->fts_touch_dev->kobj,
@@ -7985,6 +7939,7 @@ ProbeErrorExit_7:
 #endif
 
 ProbeErrorExit_6:
+	pm_qos_remove_request(&info->pm_qos_req);
 	power_supply_unreg_notifier(&info->power_supply_notifier);
 	input_unregister_device(info->input_dev);
 
@@ -8040,6 +7995,9 @@ static int fts_remove(struct spi_device *client)
 #ifdef CONFIG_BL_CALLBACK
 	backlight_unregister_notifier(&info->bl_notifier);
 #endif
+
+	pm_qos_remove_request(&info->pm_qos_req);
+
 #ifdef CONFIG_DRM
 	mi_drm_unregister_client(&info->notifier);
 #endif

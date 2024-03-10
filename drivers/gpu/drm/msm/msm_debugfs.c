@@ -83,6 +83,7 @@ static int msm_gpu_open(struct inode *inode, struct file *file)
 		goto free_priv;
 
 	pm_runtime_get_sync(&gpu->pdev->dev);
+	msm_gpu_hw_init(gpu);
 	show_priv->state = gpu->funcs->gpu_state_get(gpu);
 	pm_runtime_put_sync(&gpu->pdev->dev);
 
@@ -212,12 +213,7 @@ static int late_init_minor(struct drm_minor *minor)
 
 int msm_debugfs_late_init(struct drm_device *dev)
 {
-	int ret;
-	ret = late_init_minor(dev->primary);
-	if (ret)
-		return ret;
-	ret = late_init_minor(dev->render);
-	return ret;
+	return 0;
 }
 
 int msm_debugfs_init(struct drm_minor *minor)

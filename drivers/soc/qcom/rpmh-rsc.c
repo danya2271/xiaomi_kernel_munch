@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "%s " fmt, KBUILD_MODNAME
@@ -463,7 +464,7 @@ done_write:
  * Return: 0 on success, -EINVAL on error.
  * Note: This call blocks until a valid data is written to the TCS.
  */
- extern int in_long_press;
+ extern int in_loong_press;
 int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 {
 	int ret;
@@ -478,13 +479,17 @@ int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 	do {
 		ret = tcs_write(drv, msg);
 		if (ret == -EBUSY) {
+#ifdef CONFIG_DEBUG
 			pr_info_ratelimited("DRV:%s TCS Busy, retrying RPMH message send: addr=%#x\n",
 					    drv->name, msg->cmds[0].addr);
-			udelay(10);
+#endif
+			udelay(50);
 			count++;
 		}
-		if ((count == 50000) && (in_long_press)) {
+		if ((count == 50000) && (in_loong_press)) {
+#ifdef CONFIG_DEBUG
 			printk(KERN_ERR "Long Press :TCS Busy but log saved!");
+#endif
 			break;
 		}
 
@@ -951,6 +956,3 @@ static int __init rpmh_driver_init(void)
 	return platform_driver_register(&rpmh_driver);
 }
 arch_initcall(rpmh_driver_init);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("Qualcomm RPM-Hardened (RPMH) Communication driver");

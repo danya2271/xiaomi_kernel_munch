@@ -24,7 +24,6 @@
 
 #include <linux/soc/qcom/smem.h>
 #include <linux/soc/qcom/smem_state.h>
-#include <linux/signal.h>
 
 #include "peripheral-loader.h"
 
@@ -615,8 +614,6 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	void *mdata_buf;
 	int ret;
 	struct scm_desc desc = {0};
-	sigset_t new_sigset;
-	sigset_t old_sigset;
 	struct pil_map_fw_info map_fw_info = {
 		.attrs = pil->attrs,
 		.region = region,
@@ -632,16 +629,7 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	if (ret)
 		return ret;
 
-	/* initialize the new signal mask with all signals*/
-	sigfillset(&new_sigset);
-
-	/* block all signals */
-	sigprocmask(SIG_SETMASK, &new_sigset, &old_sigset);
-
-  	mdata_buf = pil->map_fw_mem(mdata_phys, size, map_data);
-	/* restore signal mask */
-	sigprocmask(SIG_SETMASK, &old_sigset, NULL);
-	
+	mdata_buf = pil->map_fw_mem(mdata_phys, size, map_data);
 	if (!mdata_buf) {
 		dev_err(pil->dev, "Failed to map memory for metadata.\n");
 		scm_pas_disable_bw();
@@ -877,12 +865,16 @@ static int subsys_powerup(const struct subsys_desc *subsys)
 
 static int subsys_ramdump(int enable, const struct subsys_desc *subsys)
 {
+#if 0
 	struct pil_tz_data *d = subsys_to_data(subsys);
 
 	if (!enable)
 		return 0;
 
 	return pil_do_ramdump(&d->desc, d->ramdump_dev, d->minidump_dev);
+#else
+	return 0;
+#endif
 }
 
 static void subsys_free_memory(const struct subsys_desc *subsys)
@@ -1258,7 +1250,7 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 
 	d->desc.sequential_loading = of_property_read_bool(pdev->dev.of_node,
 						"qcom,sequential-fw-load");
-
+#if 0
 	d->ramdump_dev = create_ramdump_device(d->subsys_desc.name,
 								&pdev->dev);
 	if (!d->ramdump_dev) {
@@ -1275,7 +1267,7 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto err_minidump;
 	}
-
+#endif
 	d->subsys = subsys_register(&d->subsys_desc);
 	if (IS_ERR(d->subsys)) {
 		rc = PTR_ERR(d->subsys);

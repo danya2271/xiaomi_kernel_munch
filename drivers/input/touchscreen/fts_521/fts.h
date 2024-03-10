@@ -4,6 +4,7 @@
  * FTS Capacitive touch screen controller (FingerTipS)
  *
  * Copyright (C) 2017, STMicroelectronics
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Authors: AMG(Analog Mems Group)
  *
  * 		marco.cali@st.com
@@ -35,6 +36,7 @@
 #include <linux/sysfs.h>
 #include <linux/notifier.h>
 #include <linux/mutex.h>
+#include <linux/pm_qos.h>
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
 #include <linux/completion.h>
@@ -322,6 +324,7 @@ struct fts_ts_info {
 	struct workqueue_struct *event_wq;
 	struct workqueue_struct *irq_wq;
 	struct workqueue_struct *touch_feature_wq;
+	struct pm_qos_request pm_qos_req;
 
 #ifndef FW_UPDATE_ON_PROBE
 	struct delayed_work fwu_work;

@@ -73,10 +73,6 @@ struct fts_ts_data *fts_data;
 static int fts_ts_suspend(struct device *dev);
 static int fts_ts_resume(struct device *dev);
 
-#define LPM_EVENT_INPUT 0x1
-extern void lpm_disable_for_dev(bool on, char event_dev);
-extern void touch_irq_boost(void);
-
 #ifdef CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE
 static void fts_read_palm_data(u8 reg_value);
 static int fts_palm_sensor_cmd(int value);
@@ -418,7 +414,6 @@ void fts_release_all_finger(void)
 #endif
 	input_report_key(input_dev, BTN_TOUCH, 0);
 	input_sync(input_dev);
-	lpm_disable_for_dev(false, LPM_EVENT_INPUT);
 
 	fts_data->touchs = 0;
 	fts_data->key_state = 0;
@@ -526,7 +521,6 @@ static int fts_input_report_b(struct fts_ts_data *data)
 		/* touchs==0, there's no point but key */
 		if (EVENT_NO_DOWN(data) || (!touchs)) {
 			input_report_key(data->input_dev, BTN_TOUCH, 0);
-			lpm_disable_for_dev(false, LPM_EVENT_INPUT);
 		} else {
 			input_report_key(data->input_dev, BTN_TOUCH, 1);
 		}
@@ -730,7 +724,6 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
 	int ret = 0;
 	struct fts_ts_data *ts_data = fts_data;
 
-	touch_irq_boost();
 	if ((ts_data->suspended) && (ts_data->pm_suspend)) {
 		ret = wait_for_completion_timeout(
 				  &ts_data->pm_completion,
@@ -740,12 +733,9 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
 			return IRQ_HANDLED;
 		}
 	}
-#else
-	touch_irq_boost();
 #endif
 
 	pm_stay_awake(fts_data->dev);
-	lpm_disable_for_dev(true, LPM_EVENT_INPUT);
 	fts_irq_read_report();
 	pm_relax(fts_data->dev);
 	return IRQ_HANDLED;
@@ -1812,6 +1802,38 @@ static const struct dev_pm_ops fts_dev_pm_ops = {
 };
 #endif
 
+void fts_update_gesture_state(struct fts_ts_data *ts_data, int bit, bool enable)
+{
+	u8 cmd_shift = 0;
+
+	if (GESTURE_DOUBLETAP == bit)
+		cmd_shift = FTS_GESTURE_DOUBLETAP;
+	else if (GESTURE_AOD == bit)
+		cmd_shift = FTS_GESTURE_AOD;
+
+	mutex_lock(&ts_data->input_dev->mutex);
+	if (enable) {
+		ts_data->gesture_status |= 1 << bit;
+		ts_data->gesture_cmd |= 1 << cmd_shift;
+	} else {
+		ts_data->gesture_status &= ~(1 << bit);
+		ts_data->gesture_cmd &= ~(1 << cmd_shift);
+	}
+
+	if (ts_data->suspended) {
+		FTS_ERROR("TP is suspended, delay update gesture state!");
+		ts_data->gesture_cmd_delay = true;
+		FTS_INFO("delay gesture state:0x%02X, delay write cmd:0x%02X",
+			ts_data->gesture_status, ts_data->gesture_cmd);
+		mutex_unlock(&ts_data->input_dev->mutex);
+		return;
+	}
+
+	FTS_INFO("gesture state:0x%02X, write cmd:0x%02X", ts_data->gesture_status, ts_data->gesture_cmd);
+	ts_data->gesture_mode = ts_data->gesture_status != 0 ? ENABLE : DISABLE;
+	mutex_unlock(&ts_data->input_dev->mutex);
+}
+
 #ifdef CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE
 static struct xiaomi_touch_interface xiaomi_touch_interfaces;
 
@@ -2082,38 +2104,6 @@ static void fts_update_touchmode_data(struct fts_ts_data *ts_data)
 
 	mutex_unlock(&ts_data->cmd_update_mutex);
 	pm_relax(ts_data->dev);
-}
-
-static void fts_update_gesture_state(struct fts_ts_data *ts_data, int bit, bool enable)
-{
-	u8 cmd_shift = 0;
-
-	if (GESTURE_DOUBLETAP == bit)
-		cmd_shift = FTS_GESTURE_DOUBLETAP;
-	else if (GESTURE_AOD == bit)
-		cmd_shift = FTS_GESTURE_AOD;
-
-	mutex_lock(&ts_data->input_dev->mutex);
-	if (enable) {
-		ts_data->gesture_status |= 1 << bit;
-		ts_data->gesture_cmd |= 1 << cmd_shift;
-	} else {
-		ts_data->gesture_status &= ~(1 << bit);
-		ts_data->gesture_cmd &= ~(1 << cmd_shift);
-	}
-
-	if (ts_data->suspended) {
-		FTS_ERROR("TP is suspended, delay update gesture state!");
-		ts_data->gesture_cmd_delay = true;
-		FTS_INFO("delay gesture state:0x%02X, delay write cmd:0x%02X",
-			ts_data->gesture_status, ts_data->gesture_cmd);
-		mutex_unlock(&ts_data->input_dev->mutex);
-		return;
-	}
-
-	FTS_INFO("gesture state:0x%02X, write cmd:0x%02X", ts_data->gesture_status, ts_data->gesture_cmd);
-	ts_data->gesture_mode = ts_data->gesture_status != 0 ? ENABLE : DISABLE;
-	mutex_unlock(&ts_data->input_dev->mutex);
 }
 
 static void fts_power_status_handle(struct fts_ts_data *fts_data)

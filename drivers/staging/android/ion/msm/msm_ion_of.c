@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/err.h>
@@ -372,6 +373,7 @@ static struct platform_driver msm_ion_driver = {
 	.driver = {
 		.name = "ion-msm",
 		.of_match_table = msm_ion_match_table,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

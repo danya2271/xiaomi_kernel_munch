@@ -11,7 +11,6 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <soc/qcom/rpm-smd.h>
-#include <trace/events/trace_msm_bus.h>
 #include "msm_bus_core.h"
 #include "msm_bus_adhoc.h"
 #include "msm_bus_noc.h"
@@ -246,9 +245,6 @@ static int send_rpm_msg(struct msm_bus_node_device_type *ndev, int ctx)
 				 ndev->node_info->mas_rpm_id);
 			goto exit_send_rpm_msg;
 		}
-		trace_bus_agg_bw(ndev->node_info->id,
-			ndev->node_info->mas_rpm_id, rpm_ctx,
-			ndev->node_bw[ctx].sum_ab);
 	}
 
 	if (ndev->node_info->slv_rpm_id != -1) {
@@ -263,9 +259,6 @@ static int send_rpm_msg(struct msm_bus_node_device_type *ndev, int ctx)
 				ndev->node_info->slv_rpm_id);
 			goto exit_send_rpm_msg;
 		}
-		trace_bus_agg_bw(ndev->node_info->id,
-			ndev->node_info->slv_rpm_id, rpm_ctx,
-			ndev->node_bw[ctx].sum_ab);
 	}
 exit_send_rpm_msg:
 	return ret;
@@ -1062,30 +1055,7 @@ exit_setup_dev_conn:
 
 static int msm_bus_node_debug(struct device *bus_dev, void *data)
 {
-	int j;
-	int ret = 0;
-	struct msm_bus_node_device_type *bus_node = NULL;
-
-	bus_node = to_msm_bus_node(bus_dev);
-	if (!bus_node) {
-		MSM_BUS_ERR("%s: Can't get device info", __func__);
-		ret = -ENODEV;
-		goto exit_node_debug;
-	}
-
-	MSM_BUS_DBG("Device = %d buswidth %u", bus_node->node_info->id,
-				bus_node->node_info->agg_params.buswidth);
-	for (j = 0; j < bus_node->node_info->num_connections; j++) {
-		struct msm_bus_node_device_type *bdev =
-		to_msm_bus_node(bus_node->node_info->dev_connections[j]);
-		MSM_BUS_DBG("\n\t Connection[%d] %d", j, bdev->node_info->id);
-	}
-
-	if (bus_node->node_info->is_fab_dev)
-		msm_bus_floor_init(bus_dev);
-
-exit_node_debug:
-	return ret;
+	return 0;
 }
 
 static int msm_bus_free_dev(struct device *dev, void *data)

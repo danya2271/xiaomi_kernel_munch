@@ -3,6 +3,7 @@
  * FocalTech TouchScreen driver.
  *
  * Copyright (c) 2012-2020, Focaltech Ltd. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -281,6 +282,7 @@ void fts_gesture_recovery(struct fts_ts_data *ts_data);
 int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *data);
 int fts_gesture_suspend(struct fts_ts_data *ts_data);
 int fts_gesture_resume(struct fts_ts_data *ts_data);
+void fts_update_gesture_state(struct fts_ts_data *ts_data, int bit, bool enable);
 
 /* Apk and functions */
 int fts_create_proc(struct fts_ts_data *ts_data);

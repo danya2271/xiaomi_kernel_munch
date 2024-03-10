@@ -694,7 +694,7 @@ static int rpmh_gmu_arc_votes_init(struct gmu_device *gmu,
 		struct rpmh_arc_vals *pri_rail, struct rpmh_arc_vals *sec_rail)
 {
 	/* Hardcoded values of GMU CX voltage levels */
-	u16 gmu_cx_vlvl[] = { 0, RPMH_REGULATOR_LEVEL_MIN_SVS };
+	u16 gmu_cx_vlvl[] = { 0, 2 };
 
 	return setup_volt_dependency_tbl(gmu->rpmh_votes.cx_votes, pri_rail,
 						sec_rail, gmu_cx_vlvl, 2);
@@ -1561,7 +1561,6 @@ static void gmu_snapshot(struct kgsl_device *device)
 	adreno_gmu_send_nmi(adreno_dev);
 	/* Wait for the NMI to be handled */
 	udelay(100);
-	kgsl_device_snapshot(device, NULL, true);
 
 	adreno_write_gmureg(adreno_dev,
 			ADRENO_REG_GMU_GMU2HOST_INTR_CLR, 0xFFFFFFFF);
@@ -1612,7 +1611,7 @@ static int gmu_start(struct kgsl_device *device)
 
 		/* Vote for minimal DDR BW for GMU to init */
 		ret = msm_bus_scale_client_update_request(gmu->pcl,
-				pwr->pwrlevels[pwr->default_pwrlevel].bus_min);
+				pwr->pwrlevels[pwr->num_pwrlevels - 1].bus_min);
 		if (ret)
 			dev_err(&gmu->pdev->dev,
 				"Failed to allocate gmu b/w: %d\n", ret);
@@ -1815,7 +1814,6 @@ struct gmu_core_ops gmu_ops = {
 	.start = gmu_start,
 	.stop = gmu_stop,
 	.dcvs_set = gmu_dcvs_set,
-	.snapshot = gmu_snapshot,
 	.regulator_isenabled = gmu_regulator_isenabled,
 	.suspend = gmu_suspend,
 	.acd_set = gmu_acd_set,
