@@ -143,11 +143,7 @@ enum print_reason {
 #define BAT_TEMP_TOO_HOT		580
 
 #define SDP_100_MA			100000
-#ifdef CONFIG_FACTORY_BUILD
-#define SDP_CURRENT_UA			600000
-#else
 #define SDP_CURRENT_UA			500000
-#endif
 #define CDP_CURRENT_UA			1500000
 #define DCP_CURRENT_UA			1600000
 

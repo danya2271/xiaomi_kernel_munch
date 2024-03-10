@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "QCOM-BATT: %s: " fmt, __func__
@@ -103,7 +104,9 @@ struct pl_data {
 	int			main_fcc_max;
 	enum power_supply_type	charger_type;
 	/* debugfs directory */
+#ifdef CONFIG_DEBUG_FS
 	struct dentry		*dfs_root;
+#endif
 	u32			float_voltage_uv;
 };
 
@@ -118,8 +121,11 @@ enum {
 	FORCE_INOV_DISABLE_BIT	= BIT(1),
 };
 
+#ifdef CONFIG_DEBUG_FS
 static int debug_mask;
+#endif
 
+#ifdef CONFIG_DEBUG_FS
 #define pl_dbg(chip, reason, fmt, ...)				\
 	do {								\
 		if (debug_mask & (reason))				\
@@ -127,6 +133,9 @@ static int debug_mask;
 		else							\
 			pr_debug(fmt, ##__VA_ARGS__);		\
 	} while (0)
+#else
+#define pl_dbg(chip, reason, fmt, ...)	do {} while (0)
+#endif
 
 #define IS_USBIN(mode)	((mode == POWER_SUPPLY_PL_USBIN_USBIN) \
 			|| (mode == POWER_SUPPLY_PL_USBIN_USBIN_EXT))
@@ -1186,7 +1195,7 @@ stepper_exit:
 	cp_configure_ilim(chip, FCC_VOTER, chip->slave_fcc_ua / 2);
 
 	if (reschedule_ms) {
-		schedule_delayed_work(&chip->fcc_stepper_work,
+		queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 				msecs_to_jiffies(reschedule_ms));
 		pr_debug("Rescheduling FCC_STEPPER work\n");
 		return;
@@ -1327,7 +1336,7 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ua <= 1400000)
 		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	else
-		schedule_delayed_work(&chip->status_change_work,
+		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work,
 						msecs_to_jiffies(PL_DELAY_MS));
 
 	/* rerun AICL */
@@ -1477,7 +1486,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				schedule_delayed_work(&chip->fcc_stepper_work,
+				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 					0);
 			}
 		} else {
@@ -1594,7 +1603,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				schedule_delayed_work(&chip->fcc_stepper_work,
+				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
 					0);
 			}
 		}
@@ -1941,7 +1950,7 @@ static int pl_notifier_call(struct notifier_block *nb,
 	if ((strcmp(psy->desc->name, "parallel") == 0)
 	    || (strcmp(psy->desc->name, "battery") == 0)
 	    || (strcmp(psy->desc->name, "main") == 0))
-		schedule_delayed_work(&chip->status_change_work, 0);
+		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work, 0);
 
 	return NOTIFY_OK;
 }
@@ -1978,6 +1987,7 @@ static void pl_config_init(struct pl_data *chip, int smb_version)
 	}
 }
 
+#ifdef CONFIG_DEBUG_FS
 static void qcom_batt_create_debugfs(struct pl_data *chip)
 {
 	struct dentry *entry;
@@ -1995,6 +2005,7 @@ static void qcom_batt_create_debugfs(struct pl_data *chip)
 		pr_err("Couldn't create force_dc_psy_update file rc=%ld\n",
 			(long)entry);
 }
+#endif
 
 #define DEFAULT_RESTRICTED_CURRENT_UA	1000000
 int qcom_batt_init(struct charger_param *chg_param)
@@ -2017,7 +2028,9 @@ int qcom_batt_init(struct charger_param *chg_param)
 	if (!chip)
 		return -ENOMEM;
 
+#ifdef CONFIG_DEBUG_FS
 	qcom_batt_create_debugfs(chip);
+#endif
 
 	chip->slave_pct = 50;
 	chip->chg_param = chg_param;

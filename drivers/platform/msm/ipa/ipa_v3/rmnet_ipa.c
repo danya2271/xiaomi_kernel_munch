@@ -489,8 +489,8 @@ static void ipa3_copy_qmi_flt_rule_ex(
 	 */
 	flt_spec_ptr = (struct ipa_filter_spec_ex_type_v01 *) flt_spec_ptr_void;
 
-	q6_ul_flt_rule_ptr->ip = flt_spec_ptr->ip_type;
-	q6_ul_flt_rule_ptr->action = flt_spec_ptr->filter_action;
+	q6_ul_flt_rule_ptr->ip = (enum ipa_ip_type)flt_spec_ptr->ip_type;
+	q6_ul_flt_rule_ptr->action = (enum ipa_flt_action)flt_spec_ptr->filter_action;
 	if (flt_spec_ptr->is_routing_table_index_valid == true)
 		q6_ul_flt_rule_ptr->rt_tbl_idx =
 		flt_spec_ptr->route_table_index;
@@ -2651,7 +2651,7 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	}
 
 	/* Make sure that there is no Tx operation ongoing */
-	netif_stop_queue(netdev);
+	netif_device_detach(netdev);
 	spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 
 	IPAWANDBG("De-activating the PM resource.\n");
@@ -2679,8 +2679,10 @@ static int rmnet_ipa_ap_resume(struct device *dev)
 	IPAWANDBG("Enter...\n");
 	/* Clear the suspend in progress flag. */
 	atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
-	if (netdev)
-		netif_wake_queue(netdev);
+	if (netdev) {
+		netif_device_attach(netdev);
+		netif_trans_update(netdev);
+	}
 	IPAWANDBG("Exit\n");
 
 	return 0;
@@ -2932,7 +2934,8 @@ static void tethering_stats_poll_queue(struct work_struct *work)
 
 	/* Schedule again only if there's an active polling interval */
 	if (ipa3_rmnet_ctx.polling_interval != 0)
-		schedule_delayed_work(&ipa_tether_stats_poll_wakequeue_work,
+		queue_delayed_work(system_power_efficient_wq, 
+			&ipa_tether_stats_poll_wakequeue_work,
 			msecs_to_jiffies(ipa3_rmnet_ctx.polling_interval*1000));
 }
 
@@ -3024,7 +3027,8 @@ int rmnet_ipa3_poll_tethering_stats(struct wan_ioctl_poll_tethering_stats *data)
 		return 0;
 	}
 
-	schedule_delayed_work(&ipa_tether_stats_poll_wakequeue_work, 0);
+	queue_delayed_work(system_power_efficient_wq, 
+						&ipa_tether_stats_poll_wakequeue_work, 0);
 	return 0;
 }
 

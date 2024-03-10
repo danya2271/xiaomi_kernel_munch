@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-
+obj-$(CONFIG_SMB1360_CHARGER_FG)	+= smb1360-charger-fg.o
 obj-$(CONFIG_QPNP_SMB5)			+= step-chg-jeita.o battery.o qpnp-smb5.o smb5-lib.o pmic-voter.o storm-watch.o schgm-flash.o
 obj-$(CONFIG_QPNP_SMB5_PSYCHE)		+= step-chg-jeita-psyche.o battery.o qpnp-smb5-psyche.o smb5-lib-psyche.o pmic-voter.o storm-watch.o schgm-flash.o
 obj-$(CONFIG_QPNP_SMB5_POUSSIN)		+= step-chg-jeita-poussin.o battery.o qpnp-smb5-poussin.o smb5-lib-poussin.o pmic-voter.o storm-watch.o schgm-flash.o
@@ -26,3 +26,5 @@ obj-$(CONFIG_RX1619_TRIM)	+= rx1619_trim.o
 obj-$(CONFIG_RX1619)		+= rx1619.o
 obj-$(CONFIG_LN8282)			+= ln8282.o
 obj-$(CONFIG_QPNP_SMBLITE)		+= step-chg-jeita.o battery.o qpnp-smblite.o smblite-lib.o pmic-voter.o storm-watch.o schgm-flashlite.o
+obj-$(CONFIG_QPNP_VM_BMS)		+= qpnp-vm-bms.o batterydata-lib.o batterydata-interface.o
+obj-$(CONFIG_QPNP_LINEAR_CHARGER)	+= qpnp-linear-charger.o
